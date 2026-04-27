@@ -35,8 +35,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
@@ -52,8 +54,10 @@ import org.tensorflow.lite.task.vision.segmenter.Segmentation
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         enableEdgeToEdge()
+
+        System.loadLibrary("opencv_java4")  // opencv crash fix
+
         setContent {
             三算Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -121,6 +125,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
     var coloredLabels by remember { mutableStateOf<List<Pair<String, Color>>>(emptyList()) }
 
     var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
+    var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var pause by remember { mutableStateOf(false) }
@@ -160,7 +165,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
 
                 CameraPreview(
                     checkUpdate = { checkCallback ->
-                        val (newSegmentations, newBitmap) = checkCallback(pause, bitmap)
+                        val (newSegmentations, newBitmap, newCircles) = checkCallback(pause, bitmap)
 
                         if (newSegmentations != null) {
                             segmentations = newSegmentations
@@ -169,6 +174,8 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                         if (newBitmap != null) {
                             bitmap = newBitmap
                         }
+
+                        circles = newCircles
                     },
                 )
             } else {
@@ -183,12 +190,23 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .aspectRatio(1f)
             ) {
+                circles.forEach {
+                    val scale = size.width / CIRCLE_IMAGE_SIZE
+
+                    drawCircle(
+                        color = Color(255, 0, 0, 128),
+                        radius = it.radius * scale,
+                        center = Offset(it.cx * scale, it.cy * scale),
+                        style = Stroke(width = 8f),
+                    )
+                }
+
                 val segsize = segmentations.size
                 val masksize = segmentations.getOrNull(0)?.masks?.size
                 val maskwidth = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.width
                 val maskheight = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.height
 
-                println("SEGS $segsize MASKS $masksize MASK ${maskwidth}x$maskheight")
+//                println("SEGS $segsize MASKS $masksize MASK ${maskwidth}x$maskheight CANVAS ${size.width}x${size.height}")
 
                 val segmentation = segmentations.getOrNull(0) ?: return@Canvas
                 val mask = segmentation.masks.getOrNull(0) ?: return@Canvas
@@ -220,6 +238,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
             Button(onClick = {
                 if (pause) {
                     segmentations = emptyList()
+                    circles = emptyList()
                     bitmap = null
                 }
 

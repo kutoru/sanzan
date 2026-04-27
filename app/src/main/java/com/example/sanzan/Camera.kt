@@ -22,9 +22,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.tensorflow.lite.task.vision.segmenter.ImageSegmenter
 import java.util.concurrent.Executors
 
-const val IMAGE_WIDTH = 1080
-const val IMAGE_HEIGHT = 1080
-
 @Composable
 fun CameraPreview(
     checkUpdate: CheckUpdateCallback,
@@ -86,7 +83,7 @@ private fun startCamera(
     val cameraProvider = cameraProviderFuture.get()
 
     val preview = androidx.camera.core.Preview.Builder()
-        .setTargetResolution(Size(IMAGE_WIDTH, IMAGE_HEIGHT))
+        .setTargetResolution(Size(1080, 1080))
         .build()
 
     preview.setSurfaceProvider { surfaceRequest ->
@@ -94,7 +91,7 @@ private fun startCamera(
     }
 
     val imageAnalysis = ImageAnalysis.Builder()
-        .setTargetResolution(Size(IMAGE_WIDTH, IMAGE_HEIGHT))
+        .setTargetResolution(Size(1080, 1080))
         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         .build()
 
