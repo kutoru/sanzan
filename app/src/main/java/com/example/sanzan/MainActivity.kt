@@ -29,10 +29,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +43,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -49,6 +52,7 @@ import com.example.sanzan.ui.theme.三算Theme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.flow.drop
 import org.tensorflow.lite.task.vision.segmenter.Segmentation
 
 class MainActivity : ComponentActivity() {
@@ -71,11 +75,25 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun MainScreen(modifier: Modifier) {
+    temp_context = LocalContext.current
+
     val cameraPermissionState = rememberPermissionState(
         android.Manifest.permission.CAMERA
     )
+    val storagePermissionState = rememberPermissionState(
+        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+    )
 
     var cameraOpen by remember { mutableStateOf(false) }
+
+    if (!storagePermissionState.status.isGranted) {
+        Button(
+            modifier = modifier,
+            onClick = { storagePermissionState.launchPermissionRequest() },
+        ) {
+            Text(text = "storage perm")
+        }
+    }
 
     Box(
         modifier = modifier
@@ -123,12 +141,40 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
     BackHandler { onBack() }
 
     var coloredLabels by remember { mutableStateOf<List<Pair<String, Color>>>(emptyList()) }
+    var maskCircles by remember { mutableStateOf<List<Pair<Circle, Color>>>(emptyList()) }
 
     var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
     var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var pause by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { segmentations }
+            .drop(1)
+            .collect { newSegmentations ->
+                val segmentation = newSegmentations.getOrNull(0) ?: return@collect
+                val mask = segmentation.masks.getOrNull(0) ?: return@collect
+
+                val bitmap = createBinaryMaskBitmap(mask, 23)
+                val newMaskCircles = mutableListOf<Pair<Circle, Color>>()
+
+                CircleProcessor.houghCirclesOnMask(bitmap)
+                    .forEach {
+                        newMaskCircles.add(Pair(it, Color(0, 0, 255, 128)))
+                    }
+
+                CircleProcessor.minEnclosingCircleOnMask(bitmap)?.let {
+                    newMaskCircles.add(Pair(it, Color(255, 255, 0, 128)))
+                }
+
+                CircleProcessor.fitEllipseOnMask(bitmap)?.let {
+                    newMaskCircles.add(Pair(it, Color(0, 255, 0, 128)))
+                }
+
+                maskCircles = newMaskCircles
+            }
+    }
 
     Column(
         modifier = modifier
@@ -190,6 +236,17 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .aspectRatio(1f)
             ) {
+                maskCircles.forEach {
+                    val scale = size.width / 513
+
+                    drawCircle(
+                        color = it.second,
+                        radius = it.first.radius * scale,
+                        center = Offset(it.first.cx * scale, it.first.cy * scale),
+                        style = Stroke(width = 8f),
+                    )
+                }
+
                 circles.forEach {
                     val scale = size.width / CIRCLE_IMAGE_SIZE
 
@@ -219,8 +276,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                         val c = Color(it.argb); c.copy(alpha = 0.5f).toArgb()
                     }
 
-                val maskBitmap =
-                    createColoredMaskBitmap(mask.buffer, mask.width, mask.height, colors)
+                val maskBitmap = createColoredMaskBitmap(mask, colors)
 
                 drawImage(
                     image = maskBitmap.asImageBitmap(),
@@ -237,6 +293,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
         ) {
             Button(onClick = {
                 if (pause) {
+                    maskCircles = emptyList()
                     segmentations = emptyList()
                     circles = emptyList()
                     bitmap = null
