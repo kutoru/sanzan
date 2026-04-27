@@ -24,4 +24,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "三算"
 include(":app")
-include(":opencv")

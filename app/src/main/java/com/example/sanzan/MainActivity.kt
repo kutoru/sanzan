@@ -10,12 +10,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
@@ -25,34 +29,29 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.sanzan.ui.theme.三算Theme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import kotlinx.coroutines.flow.drop
-import org.opencv.core.Mat
+import org.tensorflow.lite.task.vision.segmenter.Segmentation
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        System.loadLibrary("opencv_java4")  // opencv crash fix
 
         enableEdgeToEdge()
         setContent {
@@ -119,112 +118,125 @@ fun MainScreen(modifier: Modifier) {
 fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
     BackHandler { onBack() }
 
-    var detections by remember { mutableStateOf<List<DetectedBox>>(emptyList()) }
+    var coloredLabels by remember { mutableStateOf<List<Pair<String, Color>>>(emptyList()) }
+
+    var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var contours by remember { mutableStateOf<List<Mat>>(emptyList()) }
 
     var pause by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        snapshotFlow { bitmap }
-            .drop(1)
-            .collect { newBitmap ->
-                if (newBitmap != null) {
-                    contours = findContours(bitmap)
-                }
-            }
-    }
-
-    Box(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(vertical = 32.dp)
             .pointerInput(Unit) {
                 awaitEachGesture { awaitPointerEvent() }
             },
-        contentAlignment = Alignment.Center
     ) {
-        if (bitmap == null) {
-            Text(
-                text = "Camera loading...",
-                fontSize = 24.sp,
-            )
-
-            CameraPreview(
-                checkUpdate = { checkCallback ->
-                    val (newDetections, newBitmap) = checkCallback(pause, bitmap)
-
-                    if (newDetections != null) {
-                        detections = newDetections
-                    }
-
-                    if (newBitmap != null) {
-                        bitmap = newBitmap
-                    }
-                },
-            )
-        } else if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = null,
-            )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            coloredLabels.forEachIndexed { index, label ->
+                Text(text = "$index. ${label.first}", color = label.second)
+            }
         }
 
-        Canvas(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .aspectRatio(1f),
+            contentAlignment = Alignment.Center
         ) {
-            detections.forEach { box ->
-                val scaleX = size.width / IMAGE_WIDTH
-                val scaleY = size.height / IMAGE_HEIGHT
+            if (bitmap == null) {
+                Text(
+                    text = "Camera loading...",
+                    fontSize = 24.sp,
+                )
 
-                drawRect(
-                    color = Color.Green,
-                    topLeft = Offset(box.left * scaleX, box.top * scaleY),
-                    size = androidx.compose.ui.geometry.Size(
-                        box.width * scaleX,
-                        box.height * scaleY,
-                    ),
-                    style = Stroke(width = 4f)
+                CameraPreview(
+                    checkUpdate = { checkCallback ->
+                        val (newSegmentations, newBitmap) = checkCallback(pause, bitmap)
+
+                        if (newSegmentations != null) {
+                            segmentations = newSegmentations
+                        }
+
+                        if (newBitmap != null) {
+                            bitmap = newBitmap
+                        }
+                    },
+                )
+            } else {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = null,
                 )
             }
 
-            contours.forEach { contour ->
-                val offsets = contourToOffsets(contour, size)
-                val path = offsetsToPath(offsets)
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+            ) {
+                val segsize = segmentations.size
+                val masksize = segmentations.getOrNull(0)?.masks?.size
+                val maskwidth = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.width
+                val maskheight = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.height
 
-                drawPath(
-                    path = path,
-                    color = Color.Red,
-                    style = Stroke(width = 1f)
+                println("SEGS $segsize MASKS $masksize MASK ${maskwidth}x$maskheight")
+
+                val segmentation = segmentations.getOrNull(0) ?: return@Canvas
+                val mask = segmentation.masks.getOrNull(0) ?: return@Canvas
+
+                coloredLabels =
+                    segmentation.coloredLabels.map { Pair(it.getlabel(), Color(it.argb)) }
+
+                val colors =
+                    segmentation.coloredLabels.map {
+                        val c = Color(it.argb); c.copy(alpha = 0.5f).toArgb()
+                    }
+
+                val maskBitmap =
+                    createColoredMaskBitmap(mask.buffer, mask.width, mask.height, colors)
+
+                drawImage(
+                    image = maskBitmap.asImageBitmap(),
+                    dstSize = IntSize(size.width.toInt(), size.height.toInt())
                 )
-
-                drawPath(path, Color.Red.copy(alpha = 0.3f), style = Fill)
             }
         }
 
-        Button(onClick = {
-            if (pause) {
-                detections = emptyList()
-                bitmap = null
-                contours = emptyList()
-            }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Button(onClick = {
+                if (pause) {
+                    segmentations = emptyList()
+                    bitmap = null
+                }
 
-            pause = !pause
-        }, modifier = Modifier.align(Alignment.BottomCenter)) {
-            Icon(
-                imageVector = if (pause) {
-                    Icons.Default.Close
-                } else {
-                    Icons.Default.AddCircle
-                },
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(8.dp)
-                    .size(32.dp)
-            )
+                pause = !pause
+            }) {
+                Icon(
+                    imageVector = if (pause) {
+                        Icons.Default.Close
+                    } else {
+                        Icons.Default.AddCircle
+                    },
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(32.dp)
+                )
+            }
         }
     }
 }

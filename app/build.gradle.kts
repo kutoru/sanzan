@@ -69,4 +69,6 @@ dependencies {
     implementation("org.opencv:opencv:4.13.0")
 
     implementation("com.google.accompanist:accompanist-permissions:0.37.3")
+
+    implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
 }
