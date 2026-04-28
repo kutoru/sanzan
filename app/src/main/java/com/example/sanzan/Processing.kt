@@ -3,20 +3,21 @@ package com.example.sanzan
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.camera.core.ImageProxy
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.segmenter.ImageSegmenter
@@ -41,8 +42,6 @@ object CircleProcessor {
     private var circles: List<Circle> = emptyList()
 
     fun findWithDebounce(imageProxy: ImageProxy): List<Circle> {
-        println("debounce $count")
-
         count++
 
         if (count >= SKIP_COUNT) {
@@ -103,24 +102,21 @@ object CircleProcessor {
         val mat = Mat()
         Utils.bitmapToMat(mask, mat)
         Imgproc.cvtColor(mat, mat, Imgproc.COLOR_BGR2GRAY)
-        saveMatToFile(mat)
+//        saveMatToFile(mat)
 
         val openKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(15.0, 15.0))
+            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(11.0, 11.0))
         Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_OPEN, openKernel)
-        saveMatToFile(mat)
+//        saveMatToFile(mat)
 
         val closeKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(25.0, 25.0))
+            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(15.0, 15.0))
         Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_CLOSE, closeKernel)
-        saveMatToFile(mat)
-
-//        val hull = applyConvexHull(mat)
-//        saveMatToFile(hull)
+//        saveMatToFile(mat)
 
         val blurred = Mat()
         Imgproc.GaussianBlur(mat, blurred, org.opencv.core.Size(5.0, 5.0), 0.0)
-        saveMatToFile(blurred)
+//        saveMatToFile(blurred)
 
         val circles = Mat()
         Imgproc.HoughCircles(
@@ -128,7 +124,7 @@ object CircleProcessor {
             circles,
             Imgproc.HOUGH_GRADIENT,
             1.0,
-            mask.width / 4.0,
+            mask.width / 1.0,
             50.0,
             30.0,
             mask.width / 4,
@@ -147,92 +143,21 @@ object CircleProcessor {
         return circleList
     }
 
-    fun applyConvexHull(maskMat: Mat): Mat {
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(
-            maskMat,
-            contours,
-            Mat(),
-            Imgproc.RETR_EXTERNAL,
-            Imgproc.CHAIN_APPROX_SIMPLE
-        )
-
-        val hullMask = Mat.zeros(maskMat.size(), CvType.CV_8UC1)
-
-        for (contour in contours) {
-            if (Imgproc.contourArea(contour) < 100) continue
-
-            val hullIndexes = MatOfInt()
-            Imgproc.convexHull(contour, hullIndexes)
-
-            val points = contour.toList()
-            val indexList = hullIndexes.toList()
-            val hullPoints = indexList.map { points[it] }
-
-            val hullMatOfPoint = MatOfPoint()
-            hullMatOfPoint.fromList(hullPoints)
-            Imgproc.fillPoly(hullMask, listOf(hullMatOfPoint), Scalar(255.0))
-        }
-        return hullMask
-    }
-
-    fun minEnclosingCircleOnMask(mask: Bitmap): Circle? {
-        val mat = Mat()
-        Utils.bitmapToMat(mask, mat)
-        Imgproc.cvtColor(mat, mat, Imgproc.COLOR_BGR2GRAY)
-        saveMatToFile(mat)
-
-        val smallOpenKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(5.0, 5.0))
-        Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_OPEN, smallOpenKernel)
-        saveMatToFile(mat)
-
-        val openKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(21.0, 21.0))
-        Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_OPEN, openKernel)
-        saveMatToFile(mat)
-
-        val closeKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(31.0, 31.0))
-        Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_CLOSE, closeKernel)
-        saveMatToFile(mat)
-
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(
-            mat,
-            contours,
-            Mat(),
-            Imgproc.RETR_EXTERNAL,
-            Imgproc.CHAIN_APPROX_SIMPLE
-        )
-
-        val largestContour = contours.maxByOrNull { Imgproc.contourArea(it) } ?: return null
-
-        val points = MatOfPoint2f()
-        largestContour.convertTo(points, CvType.CV_32FC2)
-
-        val center = org.opencv.core.Point()
-        val radius = FloatArray(1)
-        Imgproc.minEnclosingCircle(points, center, radius)
-
-        return Circle(center.x.toFloat(), center.y.toFloat(), radius[0])
-    }
-
     fun fitEllipseOnMask(mask: Bitmap): Circle? {
         val mat = Mat()
         Utils.bitmapToMat(mask, mat)
         Imgproc.cvtColor(mat, mat, Imgproc.COLOR_BGR2GRAY)
-        saveMatToFile(mat)
+//        saveMatToFile(mat)
 
         val openKernel =
             Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(11.0, 11.0))
         Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_OPEN, openKernel)
-        saveMatToFile(mat)
+//        saveMatToFile(mat)
 
         val closeKernel =
-            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(19.0, 19.0))
+            Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(15.0, 15.0))
         Imgproc.morphologyEx(mat, mat, Imgproc.MORPH_CLOSE, closeKernel)
-        saveMatToFile(mat)
+//        saveMatToFile(mat)
 
         val contours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(
@@ -253,7 +178,7 @@ object CircleProcessor {
         val ellipse = Imgproc.fitEllipse(points2f)
 
         val center = ellipse.center
-        val radius = (ellipse.size.width + ellipse.size.height) / 4.0  // average of half‑axes
+        val radius = (ellipse.size.width + ellipse.size.height) / 4.0
 
         return Circle(center.x.toFloat(), center.y.toFloat(), radius.toFloat())
     }
@@ -277,12 +202,13 @@ fun processImageProxy(
         val newBitmap =
             rotateBitmap(imageProxy.toBitmap(), imageProxy.imageInfo.rotationDegrees.toFloat())
 
-        val tensorImage = TensorImage.fromBitmap(newBitmap)
-        val newSegmentations = imageSegmenter.segment(tensorImage)
+//        val tensorImage = TensorImage.fromBitmap(newBitmap)
+//        val newSegmentations = imageSegmenter.segment(tensorImage)
 
         imageProxy.close()
 
-        return@checkUpdate Triple(newSegmentations, newBitmap, circles)
+//        return@checkUpdate Triple(newSegmentations, newBitmap, circles)
+        return@checkUpdate Triple(null, newBitmap, circles)
     }
 }
 
@@ -367,16 +293,158 @@ fun saveBitmapToFile(bitmap: Bitmap) {
 
     val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
-//    uri?.let {
-//        resolver.openOutputStream(it)?.use { outputStream ->
-//            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-//            println("saved")
-//        }
-//    }
+    uri?.let {
+        resolver.openOutputStream(it)?.use { outputStream ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            println("saved")
+        }
+    }
 }
 
 fun saveMatToFile(mat: Mat) {
     val bitmap = createBitmap(mat.cols(), mat.rows())
     Utils.matToBitmap(mat, bitmap)
     saveBitmapToFile(bitmap)
+}
+
+fun findEdges(bitmap: Bitmap): Mat {
+    val mat = Mat()
+    Utils.bitmapToMat(bitmap, mat)
+    saveMatToFile(mat)
+
+    val gray = Mat()
+    Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY)
+    saveMatToFile(gray)
+
+    val blurred = Mat()
+    Imgproc.GaussianBlur(gray, blurred, org.opencv.core.Size(5.0, 5.0), 0.0)
+    saveMatToFile(blurred)
+
+    val edges = Mat()
+    Imgproc.Canny(blurred, edges, 50.0, 150.0)
+    saveMatToFile(edges)
+
+//    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, org.opencv.core.Size(7.0, 7.0))
+//    val closed = Mat()
+//    Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
+//    saveMatToFile(closed)
+
+    return edges
+}
+
+fun contourToOffsets(
+    contour: Mat,
+    bitmap: Bitmap,
+    canvasSize: androidx.compose.ui.geometry.Size,
+): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val total = contour.rows()
+
+    for (i in 0 until total) {
+        val point = contour.get(i, 0)
+        val x = point[0].toFloat()
+        val y = point[1].toFloat()
+        val scaleX = canvasSize.width / bitmap.width
+        val scaleY = canvasSize.height / bitmap.height
+
+        points.add(Offset(x * scaleX, y * scaleY))
+    }
+
+    return points
+}
+
+fun contourToOffsetsWithResize(
+    contour: Mat,
+    bitmap: Bitmap,
+    circle: Circle,
+    canvasSize: androidx.compose.ui.geometry.Size,
+): List<Offset> {
+    val points = mutableListOf<Offset>()
+    val total = contour.rows()
+
+    val offsetX = circle.cx - circle.radius
+    val offsetY = circle.cy - circle.radius
+
+    for (i in 0 until total) {
+        val point = contour.get(i, 0)
+        val x = offsetX + point[0].toFloat()
+        val y = offsetY + point[1].toFloat()
+        val scaleX = canvasSize.width / bitmap.width
+        val scaleY = canvasSize.height / bitmap.height
+
+        points.add(Offset(x * scaleX, y * scaleY))
+    }
+
+    return points
+}
+
+fun offsetsToPath(offsets: List<Offset>): Path {
+    return Path().apply {
+        moveTo(offsets.first().x, offsets.first().y)
+
+        for (i in 1 until offsets.size) {
+            lineTo(offsets[i].x, offsets[i].y)
+        }
+
+        close()
+    }
+}
+
+fun applyCircleMask(bitmap: Bitmap, circle: Circle): Bitmap {
+    val maskedBitmap = createBitmap(bitmap.width, bitmap.height)
+    val canvas = Canvas(maskedBitmap)
+
+    val circlePath = android.graphics.Path().apply {
+        addCircle(circle.cx, circle.cy, circle.radius, android.graphics.Path.Direction.CW)
+    }
+
+    canvas.clipPath(circlePath)
+    canvas.drawBitmap(bitmap, 0f, 0f, null)
+
+    return maskedBitmap
+}
+
+fun applyCircleMaskWithResize(bitmap: Bitmap, circle: Circle): Bitmap {
+    val size = circle.radius.toInt() * 2;
+    val maskedBitmap = createBitmap(size, size)
+    val canvas = Canvas(maskedBitmap)
+
+    val circlePath = android.graphics.Path().apply {
+        addCircle(size / 2f, size / 2f, size / 2f, android.graphics.Path.Direction.CW)
+    }
+
+    canvas.clipPath(circlePath)
+    canvas.drawBitmap(
+        bitmap,
+        (circle.cx - circle.radius) * -1,
+        (circle.cy - circle.radius) * -1,
+        null
+    )
+
+    return maskedBitmap
+}
+
+fun createEdgeBitmap(
+    edges: Mat,
+): Bitmap {
+    val width = edges.cols()
+    val height = edges.rows()
+
+    val bitmap = createBitmap(width, height)
+    val pixels = IntArray(width * height)
+
+    for (col in 0 until width) {
+        for (row in 0 until height) {
+            val pixel = edges.get(row, col);
+
+            if (pixel[0] > 1) {
+                pixels[height * row + col] = Color.GREEN
+            } else {
+                pixels[height * row + col] = Color.TRANSPARENT
+            }
+        }
+    }
+
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+    return bitmap
 }

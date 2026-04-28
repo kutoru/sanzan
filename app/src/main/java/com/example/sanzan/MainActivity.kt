@@ -53,6 +53,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.flow.drop
+import org.opencv.core.Mat
 import org.tensorflow.lite.task.vision.segmenter.Segmentation
 
 class MainActivity : ComponentActivity() {
@@ -145,6 +146,8 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
 
     var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
     var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
+    var contours by remember { mutableStateOf<List<Mat>>(emptyList()) }
+    var edges by remember { mutableStateOf<Mat?>(null) }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var pause by remember { mutableStateOf(false) }
@@ -159,20 +162,45 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                 val bitmap = createBinaryMaskBitmap(mask, 23)
                 val newMaskCircles = mutableListOf<Pair<Circle, Color>>()
 
-                CircleProcessor.houghCirclesOnMask(bitmap)
-                    .forEach {
-                        newMaskCircles.add(Pair(it, Color(0, 0, 255, 128)))
-                    }
+//                CircleProcessor.houghCirclesOnMask(bitmap)
+//                    .forEach {
+//                        newMaskCircles.add(Pair(it, Color(0, 0, 255, 128)))
+//                    }
 
-                CircleProcessor.minEnclosingCircleOnMask(bitmap)?.let {
-                    newMaskCircles.add(Pair(it, Color(255, 255, 0, 128)))
-                }
-
-                CircleProcessor.fitEllipseOnMask(bitmap)?.let {
-                    newMaskCircles.add(Pair(it, Color(0, 255, 0, 128)))
-                }
+//                CircleProcessor.fitEllipseOnMask(bitmap)?.let {
+//                    newMaskCircles.add(Pair(it, Color(0, 255, 0, 128)))
+//                }
 
                 maskCircles = newMaskCircles
+            }
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { bitmap }
+            .collect { newBitmap ->
+                if (newBitmap == null) {
+                    return@collect
+                }
+
+                if (newBitmap.width != newBitmap.height) {
+                    throw Error("New bitmap isn't square")
+                }
+
+//                saveBitmapToFile(newBitmap)
+
+                val scale = newBitmap.width.toFloat() / CIRCLE_IMAGE_SIZE
+                val scaledCircle = Circle(
+                    circles[0].cx * scale,
+                    circles[0].cy * scale,
+                    circles[0].radius * scale,
+                )
+
+//                val circleBitmap = applyCircleMaskWithResize(newBitmap, scaledCircle)
+                val circleBitmap = applyCircleMask(newBitmap, scaledCircle)
+//                saveBitmapToFile(circleBitmap)
+
+//                contours = findEdges(circleBitmap)
+                edges = findEdges(circleBitmap)
             }
     }
 
@@ -255,6 +283,15 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                         radius = it.radius * scale,
                         center = Offset(it.cx * scale, it.cy * scale),
                         style = Stroke(width = 8f),
+                    )
+                }
+
+                if (bitmap != null && edges != null) {
+                    val edgeBitmap = createEdgeBitmap(edges!!)
+
+                    drawImage(
+                        image = edgeBitmap.asImageBitmap(),
+                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
                     )
                 }
 
