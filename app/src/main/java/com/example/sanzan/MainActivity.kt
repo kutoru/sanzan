@@ -146,7 +146,6 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
 
     var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
     var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
-    var contours by remember { mutableStateOf<List<Mat>>(emptyList()) }
     var edges by remember { mutableStateOf<Mat?>(null) }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
@@ -199,7 +198,6 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                 val circleBitmap = applyCircleMask(newBitmap, scaledCircle)
 //                saveBitmapToFile(circleBitmap)
 
-//                contours = findEdges(circleBitmap)
                 edges = findEdges(circleBitmap)
             }
     }

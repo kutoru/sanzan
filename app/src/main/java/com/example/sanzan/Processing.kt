@@ -9,8 +9,6 @@ import android.graphics.Matrix
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.camera.core.ImageProxy
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import org.opencv.android.Utils
@@ -332,64 +330,6 @@ fun findEdges(bitmap: Bitmap): Mat {
     return edges
 }
 
-fun contourToOffsets(
-    contour: Mat,
-    bitmap: Bitmap,
-    canvasSize: androidx.compose.ui.geometry.Size,
-): List<Offset> {
-    val points = mutableListOf<Offset>()
-    val total = contour.rows()
-
-    for (i in 0 until total) {
-        val point = contour.get(i, 0)
-        val x = point[0].toFloat()
-        val y = point[1].toFloat()
-        val scaleX = canvasSize.width / bitmap.width
-        val scaleY = canvasSize.height / bitmap.height
-
-        points.add(Offset(x * scaleX, y * scaleY))
-    }
-
-    return points
-}
-
-fun contourToOffsetsWithResize(
-    contour: Mat,
-    bitmap: Bitmap,
-    circle: Circle,
-    canvasSize: androidx.compose.ui.geometry.Size,
-): List<Offset> {
-    val points = mutableListOf<Offset>()
-    val total = contour.rows()
-
-    val offsetX = circle.cx - circle.radius
-    val offsetY = circle.cy - circle.radius
-
-    for (i in 0 until total) {
-        val point = contour.get(i, 0)
-        val x = offsetX + point[0].toFloat()
-        val y = offsetY + point[1].toFloat()
-        val scaleX = canvasSize.width / bitmap.width
-        val scaleY = canvasSize.height / bitmap.height
-
-        points.add(Offset(x * scaleX, y * scaleY))
-    }
-
-    return points
-}
-
-fun offsetsToPath(offsets: List<Offset>): Path {
-    return Path().apply {
-        moveTo(offsets.first().x, offsets.first().y)
-
-        for (i in 1 until offsets.size) {
-            lineTo(offsets[i].x, offsets[i].y)
-        }
-
-        close()
-    }
-}
-
 fun applyCircleMask(bitmap: Bitmap, circle: Circle): Bitmap {
     val maskedBitmap = createBitmap(bitmap.width, bitmap.height)
     val canvas = Canvas(maskedBitmap)
@@ -433,15 +373,16 @@ fun createEdgeBitmap(
     val bitmap = createBitmap(width, height)
     val pixels = IntArray(width * height)
 
-    for (col in 0 until width) {
-        for (row in 0 until height) {
-            val pixel = edges.get(row, col);
+    val buffer = ByteArray(width * height)
+    edges.get(0, 0, buffer)
 
-            if (pixel[0] > 1) {
-                pixels[height * row + col] = Color.GREEN
-            } else {
-                pixels[height * row + col] = Color.TRANSPARENT
-            }
+    for (i in 0 until width * height) {
+        val pixel = buffer[i].toInt() and 0xFF
+
+        if (pixel > 0) {
+            pixels[i] = Color.GREEN
+        } else {
+            pixels[i] = Color.TRANSPARENT
         }
     }
 
