@@ -376,15 +376,22 @@ fun createEdgeBitmap(
     val buffer = ByteArray(width * height)
     edges.get(0, 0, buffer)
 
+    var whites = 0
+    var blacks = 0
+
     for (i in 0 until width * height) {
         val pixel = buffer[i].toInt() and 0xFF
 
         if (pixel > 0) {
+            whites++
             pixels[i] = Color.GREEN
         } else {
+            blacks++
             pixels[i] = Color.TRANSPARENT
         }
     }
+
+    println("edge stats: ${width}x${height} ${width * height} $whites $blacks ${whites.toFloat() / (width * height) * 100}%")
 
     bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
     return bitmap
