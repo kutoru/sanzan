@@ -123,6 +123,7 @@ class CircleEdges(bitmap: Bitmap, circle: Circle) {
 
         val cx = width / 2.0
         val cy = height / 2.0
+        val radius = width / 2.0
 
         val offsets = mutableListOf<Pair<Double, Double>>()
 
@@ -158,7 +159,12 @@ class CircleEdges(bitmap: Bitmap, circle: Circle) {
 
             for ((dx, dy) in offsets) {
                 val distance = abs(dx * sinT - dy * cosT)
-                if (distance <= perpendicularDistance) {
+                if (distance > perpendicularDistance) {
+                    continue
+                }
+
+                val proj = dx * cosT + dy * sinT
+                if (proj in 0.0..radius) {
                     count++
                 }
             }

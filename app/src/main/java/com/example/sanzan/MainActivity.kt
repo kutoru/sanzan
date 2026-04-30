@@ -303,8 +303,8 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                         )
 
                         val end = Offset(
-                            x = circle.cx - circle.radius * directionX,
-                            y = circle.cy - circle.radius * directionY,
+                            x = circle.cx,
+                            y = circle.cy,
                         )
 
                         drawLine(
@@ -384,7 +384,9 @@ fun onBitmapUpdate(
 
     val edges = CircleEdges(bitmap, circles[0].first)
 
+    val start = System.currentTimeMillis()
     val counts = edges.countPerDegree()
+    println("found counts in ${System.currentTimeMillis() - start}ms")
     println("counts: $counts")
 
     val top = edges.pickTopDegrees(counts)
