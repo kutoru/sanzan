@@ -41,10 +41,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,9 +52,7 @@ import com.example.sanzan.ui.theme.三算Theme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import kotlinx.coroutines.flow.drop
-import org.opencv.core.Mat
-import org.tensorflow.lite.task.vision.segmenter.Segmentation
+import org.tensorflow.lite.task.vision.segmenter.ImageSegmenter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,64 +139,35 @@ fun MainScreen(modifier: Modifier) {
 fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
     BackHandler { onBack() }
 
-    var coloredLabels by remember { mutableStateOf<List<Pair<String, Color>>>(emptyList()) }
-    var maskCircles by remember { mutableStateOf<List<Pair<Circle, Color>>>(emptyList()) }
+    val context = LocalContext.current
 
-    var segmentations by remember { mutableStateOf<List<Segmentation>>(emptyList()) }
-    var circles by remember { mutableStateOf<List<Circle>>(emptyList()) }
-    var edges by remember { mutableStateOf<Mat?>(null) }
+    val imageSegmenter = remember {
+        ImageSegmenter.createFromFile(
+            context,
+            "mobile_food_segmenter_V1.tflite"
+        )
+    }
+
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
+    var segmentation by remember { mutableStateOf<ImageSegmentation?>(null) }
+    var circles by remember { mutableStateOf<List<Pair<Circle, Color>>>(emptyList()) }
+    var edges by remember { mutableStateOf<CircleEdges?>(null) }
+
+    var realTimeCircles by remember { mutableStateOf<List<Circle>>(emptyList()) }
     var pause by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        snapshotFlow { segmentations }
-            .drop(1)
-            .collect { newSegmentations ->
-                val segmentation = newSegmentations.getOrNull(0) ?: return@collect
-                val mask = segmentation.masks.getOrNull(0) ?: return@collect
-
-                val bitmap = createBinaryMaskBitmap(mask, 23)
-                val newMaskCircles = mutableListOf<Pair<Circle, Color>>()
-
-//                CircleProcessor.houghCirclesOnMask(bitmap)
-//                    .forEach {
-//                        newMaskCircles.add(Pair(it, Color(0, 0, 255, 128)))
-//                    }
-
-//                CircleProcessor.fitEllipseOnMask(bitmap)?.let {
-//                    newMaskCircles.add(Pair(it, Color(0, 255, 0, 128)))
-//                }
-
-                maskCircles = newMaskCircles
-            }
-    }
 
     LaunchedEffect(Unit) {
         snapshotFlow { bitmap }
             .collect { newBitmap ->
-                if (newBitmap == null) {
-                    return@collect
-                }
-
-                if (newBitmap.width != newBitmap.height) {
-                    throw Error("New bitmap isn't square")
-                }
-
-//                saveBitmapToFile(newBitmap)
-
-                val scale = newBitmap.width.toFloat() / CIRCLE_IMAGE_SIZE
-                val scaledCircle = Circle(
-                    circles[0].cx * scale,
-                    circles[0].cy * scale,
-                    circles[0].radius * scale,
+                val (newSegmentation, newCircles, newEdges) = onBitmapUpdate(
+                    newBitmap,
+                    imageSegmenter
                 )
 
-//                val circleBitmap = applyCircleMaskWithResize(newBitmap, scaledCircle)
-                val circleBitmap = applyCircleMask(newBitmap, scaledCircle)
-//                saveBitmapToFile(circleBitmap)
-
-                edges = findEdges(circleBitmap)
+                segmentation = newSegmentation
+                circles = newCircles
+                edges = newEdges
             }
     }
 
@@ -218,7 +187,7 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            coloredLabels.forEachIndexed { index, label ->
+            segmentation?.coloredLabels?.forEachIndexed { index, label ->
                 Text(text = "$index. ${label.first}", color = label.second)
             }
         }
@@ -237,17 +206,13 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
 
                 CameraPreview(
                     checkUpdate = { checkCallback ->
-                        val (newSegmentations, newBitmap, newCircles) = checkCallback(pause, bitmap)
+                        val (newRealTimeCircles, newBitmap) = checkCallback(pause, bitmap != null)
 
-                        if (newSegmentations != null) {
-                            segmentations = newSegmentations
-                        }
+                        realTimeCircles = newRealTimeCircles
 
                         if (newBitmap != null) {
                             bitmap = newBitmap
                         }
-
-                        circles = newCircles
                     },
                 )
             } else {
@@ -262,8 +227,30 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .aspectRatio(1f)
             ) {
-                maskCircles.forEach {
-                    val scale = size.width / 513
+                realTimeCircles.forEach {
+                    val scale = size.width / it.srcSize
+
+                    drawCircle(
+                        color = Color(255, 0, 0, 127),
+                        radius = it.radius * scale,
+                        center = Offset(it.cx * scale, it.cy * scale),
+                        style = Stroke(width = 8f),
+                    )
+                }
+
+                if (segmentation != null) {
+                    val maskBitmap = segmentation!!.createColoredMaskBitmap()
+
+                    if (maskBitmap != null) {
+                        drawImage(
+                            image = maskBitmap.asImageBitmap(),
+                            dstSize = IntSize(size.width.toInt(), size.height.toInt())
+                        )
+                    }
+                }
+
+                circles.forEach {
+                    val scale = size.width / it.first.srcSize
 
                     drawCircle(
                         color = it.second,
@@ -273,50 +260,22 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
                     )
                 }
 
-                circles.forEach {
-                    val scale = size.width / CIRCLE_IMAGE_SIZE
-
-                    drawCircle(
-                        color = Color(255, 0, 0, 128),
-                        radius = it.radius * scale,
-                        center = Offset(it.cx * scale, it.cy * scale),
-                        style = Stroke(width = 8f),
-                    )
-                }
-
                 if (bitmap != null && edges != null) {
-                    val edgeBitmap = createEdgeBitmap(edges!!)
+                    val edgeBitmap = edges!!.toBitmap()
+
+                    val scale = size.width / bitmap!!.width
+
+                    val x = edges!!.offsetX * scale
+                    val y = edges!!.offsetY * scale
+                    val w = edgeBitmap.width * scale
+                    val h = edgeBitmap.height * scale
 
                     drawImage(
                         image = edgeBitmap.asImageBitmap(),
-                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                        dstSize = IntSize(w.toInt(), h.toInt()),
+                        dstOffset = IntOffset(x.toInt(), y.toInt()),
                     )
                 }
-
-                val segsize = segmentations.size
-                val masksize = segmentations.getOrNull(0)?.masks?.size
-                val maskwidth = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.width
-                val maskheight = segmentations.getOrNull(0)?.masks?.getOrNull(0)?.height
-
-//                println("SEGS $segsize MASKS $masksize MASK ${maskwidth}x$maskheight CANVAS ${size.width}x${size.height}")
-
-                val segmentation = segmentations.getOrNull(0) ?: return@Canvas
-                val mask = segmentation.masks.getOrNull(0) ?: return@Canvas
-
-                coloredLabels =
-                    segmentation.coloredLabels.map { Pair(it.getlabel(), Color(it.argb)) }
-
-                val colors =
-                    segmentation.coloredLabels.map {
-                        val c = Color(it.argb); c.copy(alpha = 0.5f).toArgb()
-                    }
-
-                val maskBitmap = createColoredMaskBitmap(mask, colors)
-
-                drawImage(
-                    image = maskBitmap.asImageBitmap(),
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt())
-                )
             }
         }
 
@@ -328,9 +287,6 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
         ) {
             Button(onClick = {
                 if (pause) {
-                    maskCircles = emptyList()
-                    segmentations = emptyList()
-                    circles = emptyList()
                     bitmap = null
                 }
 
@@ -352,4 +308,35 @@ fun CameraScreen(modifier: Modifier, onBack: () -> Unit) {
     }
 }
 
+fun onBitmapUpdate(
+    bitmap: Bitmap?,
+    imageSegmenter: ImageSegmenter,
+): Triple<ImageSegmentation?, List<Pair<Circle, Color>>, CircleEdges?> {
+    if (bitmap == null) {
+        return Triple(null, emptyList(), null)
+    }
 
+    val segmentation = ImageSegmentation(imageSegmenter, bitmap)
+    val segBitmap = segmentation.createFilteredBinaryMaskBitmap(PRIMARY_CATEGORY)
+
+    val circles = mutableListOf<Pair<Circle, Color>>()
+
+    CircleProcessor.houghCirclesOnImage(bitmap).forEach {
+        circles.add(Pair(it, Color(255, 0, 0, 127)))
+    }
+
+    if (segBitmap != null) {
+        CircleProcessor.houghCirclesOnMask(segBitmap)
+            .forEach {
+                circles.add(Pair(it, Color(0, 0, 255, 127)))
+            }
+
+        CircleProcessor.fitEllipseOnMask(segBitmap)?.let {
+            circles.add(Pair(it, Color(0, 255, 0, 127)))
+        }
+    }
+
+    val edges = CircleEdges(bitmap, circles[0].first)
+
+    return Triple(segmentation, circles, edges)
+}
