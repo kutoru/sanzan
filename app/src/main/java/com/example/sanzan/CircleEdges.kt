@@ -12,6 +12,8 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
+const val DIAMETER_LINE_WIDTH_PERCENTAGE = 0.03
+
 class CircleEdges(bitmap: Bitmap, circle: Circle) {
     private val edges: Mat
     val offsetX: Float
@@ -115,7 +117,7 @@ class CircleEdges(bitmap: Bitmap, circle: Circle) {
         return bitmap
     }
 
-    fun countPerDegree(): IntArray {
+    fun countPerDegree(): Map<Int, Int> {
         val width = edges.width()
         val height = edges.height()
 
@@ -140,10 +142,12 @@ class CircleEdges(bitmap: Bitmap, circle: Circle) {
             }
         }
 
-        val diameterLineWidth = (width + height / 2.0) / 10.0
+        val diameterLineWidth = ((width + height) / 2.0) * DIAMETER_LINE_WIDTH_PERCENTAGE
         val perpendicularDistance = diameterLineWidth / 2.0
 
-        val result = IntArray(360)
+        println("diameter line: ${width}x$height ${(width + height) / 2.0} $diameterLineWidth $perpendicularDistance")
+
+        val result = mutableMapOf<Int, Int>()
 
         for (theta in 0 until 360) {
             var count = 0
@@ -163,5 +167,40 @@ class CircleEdges(bitmap: Bitmap, circle: Circle) {
         }
 
         return result
+    }
+
+    fun pickTopDegrees(countsPerDegree: Map<Int, Int>): List<Int> {
+        val REMOVE_ARC_DEGREE = 30
+        val counts = countsPerDegree.toMutableMap()
+        val biggestList = mutableListOf<Int>()
+
+        while (true) {
+            val biggest = (counts.maxBy { it.value }).key
+            if (biggest == 0) {
+                break
+            }
+
+            val start = biggest - REMOVE_ARC_DEGREE / 2
+            val end = start + REMOVE_ARC_DEGREE + 1
+
+            for (removeValue in start until end) {
+                var removeDegree = removeValue
+
+                if (removeDegree < 0) {
+                    removeDegree += 360
+                } else if (removeDegree > 359) {
+                    removeDegree -= 360
+                }
+
+                counts[removeDegree] = 0
+            }
+
+            biggestList.add(biggest)
+            if (biggestList.size >= 8) {
+                break
+            }
+        }
+
+        return biggestList
     }
 }
